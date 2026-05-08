@@ -25,7 +25,8 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       defaultValue: 0 // Cuando creas un producto nuevo, arranca en 0 hasta que le cargues una compra
     },
-    imagen_url: { type: DataTypes.STRING(500), allowNull: true }
+    imagen_url: { type: DataTypes.STRING(500), allowNull: true },
+    proveedor: {type: DataTypes.STRING(150)}
   }, {
     tableName: 'productos',
     timestamps: false

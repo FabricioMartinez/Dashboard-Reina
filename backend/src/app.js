@@ -20,6 +20,47 @@ if (!fs.existsSync(dir)){
     fs.mkdirSync(dir);
 }
 
+// --- RUTA: FILTRAR BALANCE FINANCIERO (VENTAS Y COMPRAS) ---
+// --- RUTA: FILTRAR BALANCE FINANCIERO (VENTAS Y COMPRAS) ---
+app.get('/api/finanzas/filtro', async (req, res) => {
+  try {
+    const { inicio, fin, proveedor } = req.query; // <-- Agregamos proveedor acá
+    
+    const start = new Date(`${inicio}T00:00:00-03:00`);
+    const end = new Date(`${fin}T23:59:59-03:00`);
+
+    // 1. Sumamos las Ventas de esa fecha
+    const ventas = await db.Venta.findAll({
+      where: { fecha: { [Op.between]: [start, end] } },
+      order: [['fecha', 'DESC']]
+    });
+    const totalVentas = ventas.reduce((acc, v) => acc + Number(v.total_recaudado), 0);
+
+    // --- NUEVO: FILTRO INTELIGENTE DE COMPRAS ---
+    let whereCompras = { fecha: { [Op.between]: [start, end] } };
+    
+    // Si escribiste un proveedor, lo agregamos a la búsqueda
+    if (proveedor && proveedor !== '') {
+      whereCompras.proveedor = { [Op.like]: `%${proveedor}%` }; 
+    }
+
+    // 2. Sumamos las Compras/Gastos (con o sin filtro)
+    const compras = await db.Compra.findAll({
+      where: whereCompras
+    });
+    const totalCompras = compras.reduce((acc, c) => acc + Number(c.total_gastado), 0);
+    // ---------------------------------------------
+
+    // 3. Calculamos la ganancia real
+    const gananciaNeta = totalVentas - totalCompras;
+
+    res.json({ ventas, totalVentas, totalCompras, gananciaNeta });
+  } catch (error) {
+    console.error("Error al filtrar finanzas:", error);
+    res.status(500).json({ error: "Error al calcular el balance" });
+  }
+});
+
 // 2. Le decimos a Express que la carpeta "uploads" sea pública para que React pueda ver las fotos
 app.use('/uploads', express.static('uploads'));
 
@@ -35,62 +76,66 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// --- RUTA 1: PANTALLA PRINCIPAL (DASHBOARD) ---
+// --- RUTA: DASHBOARD CON RENTABILIDAD POR CANAL ---
 app.get('/api/dashboard', async (req, res) => {
   try {
-    // 1. STOCK TOTAL EN EL LOCAL
-    // Sumamos la columna 'stock_actual' de todos los productos
-    const stockTotal = await db.Producto.sum('stock_actual') || 0;
-
-    // 2. TOTAL GASTADO EN COMPRAS (Histórico)
-    const totalCompras = await db.Compra.sum('total_gastado') || 0;
-
-    // 3. VENTAS DEL DÍA (Plata que entró hoy)
-    // Buscamos el inicio y fin del día actual
     const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0); // 00:00:00
-    const manana = new Date(hoy);
-    manana.setDate(manana.getDate() + 1); // Día siguiente
+    const inicioHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
 
-    const ventasHoy = await db.Venta.sum('total_recaudado', {
-      where: {
-        fecha: {
-          [Op.gte]: hoy,    // Mayor o igual a hoy a las 00:00
-          [Op.lt]: manana   // Menor a mañana a las 00:00
-        }
+    // 1. Buscamos todas las ventas de hoy una por una
+    const ventasHoyLista = await db.Venta.findAll({
+      where: { fecha: { [Op.gte]: inicioHoy } }
+    });
+
+    let ventas_hoy = 0;
+    let ganancia_hoy = 0;
+
+    // 2. Calculamos la rentabilidad ticket por ticket
+    ventasHoyLista.forEach(venta => {
+      const monto = Number(venta.total_recaudado);
+      ventas_hoy += monto;
+
+      // Según el canal, extraemos la porción de ganancia
+      const canal = venta.tipo_venta;
+
+      if (canal === 'Local') {
+        // Ganancia con un recargo del 33%
+        ganancia_hoy += monto * 0.33; 
+      } else if (canal === 'TikTok') {
+        // Ganancia con un recargo del 25%
+        ganancia_hoy += monto * 0.25; 
+      } else {
+        // Si hay otro canal (ej: Instagram), aplicamos un promedio del 30% por defecto
+        ganancia_hoy += monto - (monto / 1.30); 
       }
-    }) || 0;
+    });
 
-    // 4. INGRESOS HISTÓRICOS (Toda la plata que entró desde que abrió el local)
-    const ingresosTotales = await db.Venta.sum('total_recaudado') || 0;
+    // 3. Traemos el resto de datos estáticos
+    const stock_total = await db.Producto.sum('stock_actual') || 0;
+    const inversion_compras = await db.Compra.sum('total_gastado') || 0;
 
-    // 5. GANANCIA ESTIMADA
-    // Una forma rápida de ver el saldo: Plata que entró - Plata invertida
-    const saldoCaja = ingresosTotales - totalCompras;
-
-    // --- Acá mandamos todo empaquetado para que React lo dibuje ---
+    // 4. Mandamos los datos al Frontend
     res.json({
       estadisticas: {
-        stock_total_prendas: stockTotal,
-        ventas_hoy_efectivo: ventasHoy,
-        inversion_total_compras: totalCompras,
-        ingresos_totales_historico: ingresosTotales,
-        saldo_caja: saldoCaja
+        ventas_hoy,
+        stock_total_prendas: stock_total,
+        inversion_total_compras: inversion_compras,
+        ganancia_hoy 
       }
     });
 
   } catch (error) {
-    console.error("Error al cargar el dashboard:", error);
-    res.status(500).json({ error: "Error interno del servidor" });
+    console.error("Error al cargar dashboard:", error);
+    res.status(500).json({ error: "Error al cargar estadísticas" });
   }
 });
-
 // --- RUTA 2: AGREGAR PRODUCTO CON FOTO Y STOCK ---
 app.post('/api/productos', upload.single('imagen'), async (req, res) => {
   try {
     // Sumamos stock_actual a lo que recibimos
     const { codigo_boleta, descripcion, precio_compra, stock_actual } = req.body;
     const imagen_url = req.file ? `/uploads/${req.file.filename}` : null;
+    const { proveedor, fecha_compra, total_gastado } = req.body;
 
     if (!codigo_boleta || !descripcion || !precio_compra) {
       return res.status(400).json({ error: "Faltan datos obligatorios" });
@@ -102,8 +147,22 @@ app.post('/api/productos', upload.single('imagen'), async (req, res) => {
       precio_compra,
       // Si el usuario mandó stock, lo guardamos como número, sino queda en 0
       stock_actual: stock_actual ? Number(stock_actual) : 0, 
-      imagen_url
+      imagen_url,
+      proveedor
     });
+// --- NUEVO: REGISTRAR EL GASTO EN LAS FINANZAS ---
+    if (total_gastado && Number(total_gastado) > 0) {
+      // Calculamos la fecha: Si mandaste una desde el formulario, usa esa. Si no, usa la de hoy.
+      const fechaRegistro = fecha_compra ? new Date(`${fecha_compra}T12:00:00-03:00`) : new Date();
+
+      await db.Compra.create({
+        proveedor: proveedor || 'Carga de Ropa', // <-- Ahora usa el nombre que escribas
+        total_gastado: Number(total_gastado),
+        fecha: fechaRegistro,     // <-- ESTO FALTABA (La fecha de la boleta)
+        createdAt: fechaRegistro  // <-- Lo forzamos acá también para que Sequelize no lo pise con la fecha actual
+      });
+    }
+    // -------------------------------------------------
 
     res.json({ mensaje: "¡Producto guardado!", producto: nuevoProducto });
   } catch (error) {
@@ -253,12 +312,12 @@ app.post('/api/ventas', async (req, res) => {
 
       // Calculamos el porcentaje según dónde se vendió
       let porcentaje = 0;
-      if (tipo_venta === 'Local') porcentaje = 0.50;
-      if (tipo_venta === 'TikTok') porcentaje = 0.35;
+      if (tipo_venta === 'Local') porcentaje = 0.33;
+      if (tipo_venta === 'TikTok') porcentaje = 0.25;
       if (tipo_venta === 'Docena') porcentaje = 0.20;
 
       // Matemática: Costo + (Costo * Porcentaje)
-      const precio_cobrado = Number(producto.precio_compra) + (Number(producto.precio_compra) * porcentaje);
+      const precio_cobrado = (Number(producto.precio_compra) / (1-porcentaje));
       const subtotal = precio_cobrado * item.cantidad;
 
       total_recaudado += subtotal;
@@ -307,6 +366,38 @@ app.post('/api/ventas', async (req, res) => {
     await t.rollback();
     // Le mandamos a React el error exacto (ej: "No hay stock suficiente")
     res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/ventas/multiproducto', async (req, res) => {
+  const transaction = await db.sequelize.transaction(); // Usamos transacción por seguridad
+  try {
+    const { productos, tipo_venta, total_recaudado } = req.body;
+
+    // 1. Creamos el Ticket de Venta
+    const nuevaVenta = await db.Venta.create({
+      tipo_venta,
+      total_recaudado: Math.round(total_recaudado), // Redondeo final por las dudas
+      fecha: new Date()
+    }, { transaction });
+
+    // 2. Descontamos stock de cada producto
+    for (const item of productos) {
+      const p = await db.Producto.findByPk(item.id, { transaction });
+      if (p) {
+        await p.update({
+          stock_actual: p.stock_actual - item.cantidad
+        }, { transaction });
+      }
+    }
+
+    await transaction.commit();
+    res.json({ mensaje: "Venta procesada con éxito", id: nuevaVenta.id });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error(error);
+    res.status(500).json({ error: "Error al procesar la venta múltiple" });
   }
 });
 
@@ -445,12 +536,18 @@ app.get('/api/ventas/ultimas', async (req, res) => {
 
 
 
-// Inicialización del servidor
+// Inicialización del servidor y Limpieza de Base de Datos
 app.listen(port, async () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${port}`);
   try {
+    // 1. Primero autenticamos
     await db.sequelize.authenticate();
     console.log('✅ Base de datos conectada.');
+
+    // 2. ACÁ ESTÁ LA MAGIA: Sincronizamos y forzamos el borrado
+    await db.sequelize.sync();
+    console.log('⚠️ ¡ATENCIÓN! Base de datos LIMPIADA y reiniciada desde cero.');
+
   } catch (error) {
     console.error('❌ Error de conexión:', error);
   }

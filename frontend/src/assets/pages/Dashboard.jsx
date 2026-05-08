@@ -6,6 +6,23 @@ export default function Dashboard() {
   const [ventas, setVentas] = useState([]); // Nuevo estado para la tabla
   const [cargando, setCargando] = useState(true);
 
+  // --- NUEVOS ESTADOS PARA EL FILTRO ---
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [resultadoFiltro, setResultadoFiltro] = useState(null);
+  const [proveedorBuscado, setProveedorBuscado] = useState('');
+
+  // --- FUNCIÓN PARA BUSCAR ---
+const filtrarVentas = async () => {
+    if (!fechaDesde || !fechaHasta) return alert("Por favor seleccioná ambas fechas");
+    try {
+      // Le sumamos el proveedor a la URL
+      const res = await axios.get(`http://localhost:3000/api/finanzas/filtro?inicio=${fechaDesde}&fin=${fechaHasta}&proveedor=${proveedorBuscado}`);
+      setResultadoFiltro(res.data);
+    } catch (error) {
+      alert("Error al buscar el balance");
+    }
+  };
   useEffect(() => {
     const obtenerDatos = async () => {
       try {
@@ -36,7 +53,7 @@ export default function Dashboard() {
     // Formatea la fecha de la base de datos a formato argentino (DD/MM/AAAA, HH:MM)
     return new Date(fecha).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
   };
-
+  const inputStyle = { padding: '10px', borderRadius: '6px', border: '1px solid #ccc', outline: 'none' };
   // Asignamos colores según el tipo de venta
   const getColorPlataforma = (tipo) => {
     if (tipo === 'TikTok') return { bg: '#111', text: 'white' }; // Negro TikTok
@@ -52,29 +69,101 @@ export default function Dashboard() {
     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
       <h1 style={{ marginBottom: '30px', color: '#111' }}>Resumen de La Reina 👑</h1>
 
-      {/* --- SECCIÓN 1: TARJETAS SUPERIORES --- */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-        <div style={tarjetaStyle}>
+{/* --- SECCIÓN 1: PANEL PRINCIPAL --- */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '40px' }}>
+        
+        <div style={{...tarjetaStyle, borderLeft: '4px solid #111'}}>
           <h3 style={tituloTarjetaStyle}>Ventas de Hoy</h3>
-          <p style={numeroStyle}>{formatearPlata(estadisticas?.ventas_hoy_efectivo || 0)}</p>
+          <p style={numeroStyle}>{formatearPlata(estadisticas?.ventas_hoy || 0)}</p>
         </div>
-        <div style={tarjetaStyle}>
+
+        <div style={{...tarjetaStyle, borderLeft: '4px solid #1976d2'}}>
           <h3 style={tituloTarjetaStyle}>Stock Total</h3>
           <p style={numeroStyle}>{estadisticas?.stock_total_prendas || 0} prendas</p>
         </div>
-        <div style={tarjetaStyle}>
-          <h3 style={tituloTarjetaStyle}>Saldo de Caja Real</h3>
-          <p style={{...numeroStyle, color: (estadisticas?.saldo_caja >= 0) ? '#2e7d32' : '#c62828' }}>
-            {formatearPlata(estadisticas?.saldo_caja || 0)}
-          </p>
-        </div>
-        <div style={tarjetaStyle}>
+
+        <div style={{...tarjetaStyle, borderLeft: '4px solid #f57c00'}}>
           <h3 style={tituloTarjetaStyle}>Inversión en Compras</h3>
           <p style={numeroStyle}>{formatearPlata(estadisticas?.inversion_total_compras || 0)}</p>
         </div>
+
+        <div style={{...tarjetaStyle, borderLeft: '4px solid #2e7d32', backgroundColor: (estadisticas?.ganancia_hoy >= 0) ? '#f1f8e9' : '#ffebee'}}>
+          <h3 style={tituloTarjetaStyle}>Ganancia de Hoy</h3>
+          <p style={{...numeroStyle, color: (estadisticas?.ganancia_hoy >= 0) ? '#2e7d32' : '#c62828' }}>
+            {formatearPlata(estadisticas?.ganancia_hoy || 0)}
+          </p>
+        </div>
+
       </div>
 
-      {/* --- SECCIÓN 2: TABLA DE ÚLTIMAS VENTAS --- */}
+      {/* --- SECCIÓN NUEVA: BUSCADOR POR FECHAS --- */}
+      <div style={{...tarjetaStyle, marginBottom: '40px', backgroundColor: '#f8f9fa', border: '1px solid #e0e0e0'}}>
+        <h2 style={{ fontSize: '18px', color: '#111', marginTop: 0, marginBottom: '15px' }}>
+          🔍 Buscar Ventas Históricas
+        </h2>
+        
+        <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+<div style={{ display: 'flex', gap: '15px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '5px' }}>Desde:</label>
+            <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '5px' }}>Hasta:</label>
+            <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} style={inputStyle} />
+          </div>
+          
+          {/* --- ACÁ ESTÁ EL CAMPO NUEVO --- */}
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '5px' }}>Proveedor (Opcional):</label>
+            <input 
+              type="text" 
+              placeholder="Ej: Flores" 
+              value={proveedorBuscado} 
+              onChange={e => setProveedorBuscado(e.target.value)} 
+              style={{...inputStyle, width: '150px'}} 
+            />
+          </div>
+          {/* --------------------------------- */}
+
+          <button onClick={filtrarVentas} style={{ padding: '10px 20px', backgroundColor: '#111', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', height: '39px' }}>
+            Calcular Periodo
+          </button>
+        </div>
+        </div>
+
+        {/* --- RESULTADO DE LA BÚSQUEDA --- */}
+{/* --- RESULTADO DE LA BÚSQUEDA --- */}
+        {resultadoFiltro && (
+          <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#e8f5e9', borderRadius: '8px', borderLeft: '4px solid #2e7d32' }}>
+            <h3 style={{ margin: '0 0 15px 0', color: '#2e7d32', fontSize: '16px' }}>
+              Balance del {formatearFecha(fechaDesde + 'T12:00:00')} al {formatearFecha(fechaHasta + 'T12:00:00')}:
+            </h3>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px' }}>
+              <div style={{ backgroundColor: 'white', padding: '10px', borderRadius: '6px', border: '1px solid #c8e6c9' }}>
+                <p style={{ margin: 0, fontSize: '12px', color: '#666', fontWeight: 'bold' }}>INGRESOS (Ventas)</p>
+                <p style={{ margin: 0, fontSize: '20px', color: '#111', fontWeight: 'bold' }}>{formatearPlata(resultadoFiltro.totalVentas)}</p>
+                <p style={{ margin: 0, fontSize: '11px', color: '#888' }}>De {resultadoFiltro.ventas.length} tickets</p>
+              </div>
+
+              <div style={{ backgroundColor: 'white', padding: '10px', borderRadius: '6px', border: '1px solid #ffcdd2' }}>
+                <p style={{ margin: 0, fontSize: '12px', color: '#666', fontWeight: 'bold' }}>EGRESOS (Mercadería)</p>
+                <p style={{ margin: 0, fontSize: '20px', color: '#c62828', fontWeight: 'bold' }}>- {formatearPlata(resultadoFiltro.totalCompras)}</p>
+              </div>
+
+              <div style={{ backgroundColor: '#111', padding: '10px', borderRadius: '6px' }}>
+                <p style={{ margin: 0, fontSize: '12px', color: '#aaa', fontWeight: 'bold' }}>GANANCIA NETA</p>
+                <p style={{ margin: 0, fontSize: '20px', color: (resultadoFiltro.gananciaNeta >= 0 ? '#4caf50' : '#f44336'), fontWeight: 'bold' }}>
+                  {formatearPlata(resultadoFiltro.gananciaNeta)}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* --- SECCIÓN 3: TABLA DE ÚLTIMAS VENTAS --- */}
       <div style={tarjetaStyle}>
         <h2 style={{ fontSize: '20px', borderBottom: '1px solid #eee', paddingBottom: '15px', marginTop: 0, color: '#111' }}>
           Últimos Tickets Facturados 🧾

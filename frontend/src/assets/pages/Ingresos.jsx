@@ -1,101 +1,143 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
 
 export default function Ingresos() {
-  // Agregamos stock_actual al estado inicial
-  const [formData, setFormData] = useState({ codigo_boleta: '', descripcion: '', precio_compra: '', stock_actual: '0' });
-  const [imagen, setImagen] = useState(null); 
-  const [mensaje, setMensaje] = useState({ texto: '', tipo: '' });
-  const [cargando, setCargando] = useState(false);
-  
-  const inputCodigoRef = useRef(null);
+  const [codigo, setCodigo] = useState('');
+  const [descripcion, setDescripcion] = useState('');
+  const [montoPagado, setMontoPagado] = useState(''); 
+  const [tipoCompra, setTipoCompra] = useState('Unidad'); // Unidad, Media Docena, Docena
+  const [cantidadComprada, setCantidadComprada] = useState(''); // Ahora es la cantidad de paquetes/docenas
+  const [proveedor, setProveedor] = useState('');
+  const [fechaCompra, setFechaCompra] = useState(new Date().toISOString().split('T')[0]);
+  const [imagen, setImagen] = useState(null);
+  const [estado, setEstado] = useState('');
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  // 1. Averiguamos por cuánto hay que multiplicar
+  const getMultiplicador = () => {
+    if (tipoCompra === 'Docena') return 12;
+    if (tipoCompra === 'Media Docena') return 6;
+    return 1; // Unidad
   };
 
-  const handleFileChange = (e) => {
-    setImagen(e.target.files[0]);
+  // 2. Calculamos las prendas físicas reales
+  const calcularStockReal = () => {
+    return (Number(cantidadComprada) || 0) * getMultiplicador();
+  };
+
+  // 3. Calculamos cuánto nos costó CADA prenda
+  const calcularCostoUnitario = () => {
+    const stockTotal = calcularStockReal();
+    if (stockTotal === 0) return 0;
+    return (Number(montoPagado) || 0) / stockTotal;
   };
 
   const guardarProducto = async (e) => {
     e.preventDefault();
-    setCargando(true);
-    setMensaje({ texto: '', tipo: '' });
+    setEstado('guardando');
 
-    const datosEnvio = new FormData();
-    datosEnvio.append('codigo_boleta', formData.codigo_boleta);
-    datosEnvio.append('descripcion', formData.descripcion);
-    datosEnvio.append('precio_compra', formData.precio_compra);
-    datosEnvio.append('stock_actual', formData.stock_actual); // Mandamos el stock
-    if (imagen) {
-      datosEnvio.append('imagen', imagen); 
-    }
+    const costoUnitarioReal = calcularCostoUnitario();
+    const stockReal = calcularStockReal();
+
+    const formData = new FormData();
+    formData.append('codigo_boleta', codigo);
+    formData.append('descripcion', descripcion);
+    formData.append('precio_compra', costoUnitarioReal);
+    formData.append('stock_actual', stockReal);
+    formData.append('total_gastado', montoPagado); 
+    formData.append('proveedor', proveedor);
+    formData.append('fecha_compra', fechaCompra);
+    if (imagen) formData.append('imagen', imagen);
 
     try {
-      await axios.post('http://localhost:3000/api/productos', datosEnvio, {
-        headers: { 'Content-Type': 'multipart/form-data' } 
+      await axios.post('http://localhost:3000/api/productos', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
       
-      setMensaje({ texto: '¡Prenda guardada con foto y stock!', tipo: 'exito' });
-      setFormData({ codigo_boleta: '', descripcion: '', precio_compra: '', stock_actual: '0' });
-      setImagen(null);
-      document.getElementById('inputFoto').value = ''; 
-      setTimeout(() => inputCodigoRef.current?.focus(), 100);
-
+      setEstado('exito');
+      // Limpiamos todo
+      setCodigo(''); setDescripcion(''); setMontoPagado(''); setCantidadComprada(''); 
+      setProveedor(''); setImagen(null);
+      setTimeout(() => setEstado(''), 3000);
     } catch (error) {
-      setMensaje({ texto: 'Hubo un error al guardar', tipo: 'error' });
-    } finally {
-      setCargando(false);
+      setEstado('error');
+      console.error(error);
     }
   };
 
+  // Textos dinámicos para el formulario
+  const textoCantidad = tipoCompra === 'Docena' ? '¿Cuántas docenas llegaron?' : 
+                        tipoCompra === 'Media Docena' ? '¿Cuántas medias docenas llegaron?' : 
+                        '¿Cuántas prendas llegaron?';
+
   return (
-    <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-      <h1 style={{ color: '#111', marginBottom: '20px' }}>Ingresar Ropa Nueva 📦</h1>
-      <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-        
-        <form onSubmit={guardarProducto} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div style={{ maxWidth: '600px', margin: '0 auto', backgroundColor: 'white', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+      <h1 style={{ color: '#111', marginTop: 0 }}>📦 Ingreso de Mercadería</h1>
+      
+      <form onSubmit={guardarProducto}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
           <div>
             <label style={labelStyle}>Código de Barra</label>
-            <input ref={inputCodigoRef} type="text" name="codigo_boleta" required value={formData.codigo_boleta} onChange={handleChange} style={inputStyle} />
+            <input required type="text" value={codigo} onChange={e => setCodigo(e.target.value)} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>Descripción de la prenda</label>
-            <input type="text" name="descripcion" required value={formData.descripcion} onChange={handleChange} style={inputStyle} />
+            <input required type="text" value={descripcion} onChange={e => setDescripcion(e.target.value)} style={inputStyle} placeholder="Ej: Remera Lisa" />
           </div>
-          <div style={{ display: 'flex', gap: '15px' }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Precio de Costo</label>
-              <input type="number" name="precio_compra" required value={formData.precio_compra} onChange={handleChange} style={{ ...inputStyle, fontWeight: 'bold' }} />
-            </div>
-            {/* NUEVO INPUT DE STOCK INICIAL */}
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Stock Inicial</label>
-              <input type="number" name="stock_actual" min="0" required value={formData.stock_actual} onChange={handleChange} style={{ ...inputStyle, fontWeight: 'bold', color: '#2e7d32' }} />
-            </div>
-          </div>
-          
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
           <div>
-            <label style={labelStyle}>Subir Foto de la Prenda (Opcional)</label>
-            <input id="inputFoto" type="file" accept="image/*" onChange={handleFileChange} style={inputStyle} />
+            <label style={labelStyle}>Proveedor / Fabricante</label>
+            <input type="text" value={proveedor} onChange={e => setProveedor(e.target.value)} style={inputStyle} placeholder="Ej: Flores" />
           </div>
+          <div>
+            <label style={labelStyle}>Fecha de la Compra</label>
+            <input required type="date" value={fechaCompra} onChange={e => setFechaCompra(e.target.value)} style={inputStyle} />
+          </div>
+        </div>
 
-          <button type="submit" disabled={cargando} style={botonStyle}>
-            {cargando ? 'Guardando...' : 'Guardar en Catálogo ➕'}
-          </button>
-        </form>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '15px' }}>
+          <div>
+            <label style={labelStyle}>¿Por bulto o unidad?</label>
+            <select value={tipoCompra} onChange={e => setTipoCompra(e.target.value)} style={inputStyle}>
+              <option value="Unidad">Por Unidad</option>
+              <option value="Media Docena">Por Media Docena</option>
+              <option value="Docena">Por Docena</option>
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>{textoCantidad}</label>
+            <input required type="number" value={cantidadComprada} onChange={e => setCantidadComprada(e.target.value)} style={inputStyle} placeholder="Ej: 2" />
+          </div>
+          <div>
+            <label style={labelStyle}>Plata total gastada</label>
+            <input required type="number" value={montoPagado} onChange={e => setMontoPagado(e.target.value)} style={inputStyle} placeholder="$" />
+          </div>
+        </div>
 
-        {mensaje.texto && (
-          <div style={{ marginTop: '20px', padding: '15px', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: mensaje.tipo === 'error' ? '#ffebee' : '#e8f5e9', color: mensaje.tipo === 'error' ? '#c62828' : '#2e7d32' }}>
-            {mensaje.texto}
+        {/* RECUADRO INFORMATIVO MÁGICO */}
+        {montoPagado > 0 && cantidadComprada > 0 && (
+          <div style={{ backgroundColor: '#e3f2fd', padding: '12px', borderRadius: '6px', marginBottom: '20px', fontSize: '14px', color: '#1565c0', borderLeft: '4px solid #1976d2' }}>
+            ℹ️ El sistema ingresará <b>{calcularStockReal()} prendas físicas</b> al catálogo. <br/>
+            El costo individual de cada prenda será de <b>${calcularCostoUnitario().toFixed(2)}</b>.
           </div>
         )}
-      </div>
+
+        <div style={{ marginBottom: '25px' }}>
+          <label style={labelStyle}>Subir Foto de la Prenda (Opcional)</label>
+          <input type="file" accept="image/*" onChange={e => setImagen(e.target.files[0])} style={inputStyle} />
+        </div>
+
+        <button type="submit" disabled={estado === 'guardando'} style={{ width: '100%', padding: '15px', backgroundColor: '#111', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+          {estado === 'guardando' ? 'Guardando en Base de Datos...' : 'Guardar Compra y Producto'}
+        </button>
+
+        {estado === 'exito' && <p style={{ color: 'green', textAlign: 'center', marginTop: '10px', fontWeight: 'bold' }}>¡Producto guardado correctamente!</p>}
+        {estado === 'error' && <p style={{ color: 'red', textAlign: 'center', marginTop: '10px', fontWeight: 'bold' }}>Hubo un error al guardar.</p>}
+      </form>
     </div>
   );
 }
 
-const labelStyle = { display: 'block', marginBottom: '8px', fontSize: '14px', color: '#333', fontWeight: 'bold' };
-const inputStyle = { width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box' };
-const botonStyle = { width: '100%', padding: '15px', fontSize: '16px', backgroundColor: '#111', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', marginTop: '10px' };
+const labelStyle = { display: 'block', fontWeight: 'bold', fontSize: '12px', marginBottom: '5px', color: '#333' };
+const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' };
